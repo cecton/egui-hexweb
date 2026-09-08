@@ -12,8 +12,9 @@ be pulled into other egui apps as a dependency.
 
 The puzzle: a small patch of hexagonal lattice with fewer pieces than nodes.
 Every piece carries 1-6 arrows pointing along the six lattice directions.
-Pieces move to any free node (drag & drop, plus click-to-select); the puzzle
-is solved when **every arrow of every piece points at an occupied node**.
+Pieces move to any free node, or onto an occupied node to swap the two
+pieces (drag & drop, plus click-to-select); the puzzle is solved when
+**every arrow of every piece points at an occupied node**.
 
 "Hexa Arrows" is a trademarked product name of an existing mobile puzzle —
 never use it, or names confusingly close to it, in code, docs, or naming.
@@ -108,8 +109,8 @@ cargo test --lib --release -- --ignored --nocapture
 - `HexwebGame::random` must always produce a board that has *at least* one
   solution by construction (the generator's own layout is one), and prefers
   one verified to have exactly one within `ATTEMPTS`. The scramble must be
-  neither solved nor one move away from solved. All three properties have
-  tests; keep them.
+  neither solved nor one move or swap away from solved. All three properties
+  have tests; keep them.
 - Generation is seeded and reproducible. Don't introduce unseeded randomness
   or time-dependence into `game.rs`/`generator.rs`.
 - Add unit tests in `src/game.rs` for player-facing behavior (moves, win

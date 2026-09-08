@@ -7,6 +7,24 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-08
+
+### Added
+
+- `HexwebGame::can_swap` and `HexwebGame::swap_pieces`: two placed pieces
+  exchange nodes, counting a move like any other. Two pieces with identical
+  arrows are interchangeable, so swapping those is a free no-op that costs
+  no move
+- Landing rings while a piece is dragged now also mark the pieces a drop
+  would swap with, drawn on top of them
+- The scramble guarantee extends to swaps: a generated board is never one
+  move *or one swap* away from solved
+
+### Changed
+
+- Dropping a dragged piece onto an occupied node swaps the two pieces
+  instead of snapping back
+
 ## [0.2.0] - 2026-09-08
 
 ### Added
@@ -24,5 +42,6 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-hexweb/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cecton/egui-hexweb/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cecton/egui-hexweb/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cecton/egui-hexweb/releases/tag/v0.2.0

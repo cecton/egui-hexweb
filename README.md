@@ -15,9 +15,9 @@ A self-contained hexagonal arrow-connection puzzle game library for
 The board is a small patch of hexagonal lattice: nodes joined by grid lines in
 six directions (up, down, and the four diagonals). Fewer pieces than nodes sit
 on the board, and each piece carries a few arrows pointing along those grid
-lines. **Drag the pieces to any free node** until every arrow of every piece
-points at a node that holds another piece: a completed web where nothing
-points into the void.
+lines. **Drag the pieces to any free node, or onto another piece to swap the
+two** until every arrow of every piece points at a node that holds another
+piece: a completed web where nothing points into the void.
 
 Unsatisfied arrows are drawn in an accent color, so the board itself always
 tells you how close you are.
@@ -25,12 +25,12 @@ tells you how close you are.
 ## Features
 
 - Pure game logic struct (`HexwebGame`) with no `egui::Ui` dependency, usable headlessly or with any renderer
-- Ready-to-use egui `Widget` (`HexwebWidget`) with drag & drop plus a click-to-select fallback
+- Ready-to-use egui `Widget` (`HexwebWidget`) with drag & drop (moving onto empty nodes, swapping onto occupied ones) plus a click-to-select fallback
 - Procedural, seeded generation (`HexwebGame::random`) that always produces a solvable board and verifies, per board, that **exactly one** placement of the pieces solves it
 - An exact counting solver (`HexwebGame::solution_count`, `HexwebGame::solution`), exhaustive over the whole placement space, fast enough to run on every generated candidate and after every repair
 - Mirror-symmetric board shapes of 8 to 16 nodes (`random_symmetric_board`, hundreds of holey, notched, or compact shapes per size), plus plain `hexagon` boards
 - No losing state and no timer: every move is undone by moving back
-- The initial scramble is guaranteed to be neither solved nor solvable in a single move
+- The initial scramble is guaranteed to be neither solved nor solvable in a single move or swap
 
 ## Usage
 
@@ -38,7 +38,7 @@ Add the dependency:
 
 ```toml
 [dependencies]
-egui-hexweb = "0.2"
+egui-hexweb = "0.3"
 ```
 
 Then use it in your egui app:
@@ -109,6 +109,7 @@ never create a new solution), and recounts, until exactly one remains.
 
 | egui-hexweb | egui |
 |-------------|------|
+| 0.3         | 0.35 |
 | 0.2         | 0.35 |
 
 ## License
