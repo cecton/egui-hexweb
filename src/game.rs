@@ -6,7 +6,7 @@
 //! [`HexwebGame`] struct owns the board and the piece placement; the widget
 //! in `crate::widget` renders and drives it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Index into the board's node list.
 pub type NodeId = usize;
@@ -166,7 +166,8 @@ pub struct Node {
 /// Parameters for [`HexwebGame::random`].
 #[derive(Clone, Debug)]
 pub struct Params {
-    /// Axial coordinates of the board's nodes, e.g. from [`symmetric_board`].
+    /// Axial coordinates of the board's nodes, e.g. from
+    /// [`random_symmetric_board`].
     pub nodes: Vec<(i32, i32)>,
     /// How many pieces the board holds; the rest of the nodes stay empty.
     /// Must be at least 1 and strictly less than `nodes.len()` (there must be
@@ -208,58 +209,129 @@ pub fn hexagon(radius: u32) -> Vec<(i32, i32)> {
     coords
 }
 
-/// A mirror-symmetric board with exactly `nodes` nodes, for any count from 8
-/// to 16.
+/// An axial cell coordinate.
+type Cell = (i32, i32);
+
+/// One 60° rotation of the axial lattice.
+fn rot((q, r): Cell) -> Cell {
+    (-r, q + r)
+}
+
+/// The inverse of [`rot`]. Only the tests conjugate mirror maps with it.
+#[cfg(test)]
+fn rot_inv((q, r): Cell) -> Cell {
+    (r + q, -q)
+}
+
+/// Reflection across the vertical pixel axis: the `q = 0` column stays put.
+fn mirror_v((q, r): Cell) -> Cell {
+    (-q, r + q)
+}
+
+/// Reflection across the horizontal pixel axis.
+fn mirror_h((q, r): Cell) -> Cell {
+    (q, -q - r)
+}
+
+/// An orbit of a mirror map over the board cells: either a single on-axis
+/// cell or a mirror pair.
+type Orbit = (Cell, Option<Cell>);
+
+/// Splits `cells` (which must be closed under `mirror`) into its mirror
+/// orbits, in the order the cells appear in the input.
+fn mirror_orbits(cells: &[Cell], mirror: fn(Cell) -> Cell) -> Vec<Orbit> {
+    let mut seen: BTreeSet<Cell> = BTreeSet::new();
+    let mut orbits = Vec::new();
+    for &cell in cells {
+        if seen.insert(cell) {
+            let image = mirror(cell);
+            let twin = (image != cell).then_some(image);
+            seen.extend(twin);
+            orbits.push((cell, twin));
+        }
+    }
+    orbits
+}
+
+/// Whether `coords` forms one connected piece under the lattice's six
+/// neighbor directions.
+fn is_connected(coords: &[Cell]) -> bool {
+    let set: BTreeSet<Cell> = coords.iter().copied().collect();
+    let start = coords[0];
+    let mut seen: BTreeSet<Cell> = BTreeSet::from([start]);
+    let mut stack = vec![start];
+    while let Some(cell) = stack.pop() {
+        for dir in Dir::ALL {
+            let (dq, dr) = dir.delta();
+            let next = (cell.0 + dq, cell.1 + dr);
+            if set.contains(&next) && seen.insert(next) {
+                stack.push(next);
+            }
+        }
+    }
+    seen.len() == coords.len()
+}
+
+/// Every mirror-symmetric connected board with exactly `nodes` nodes, in a
+/// deterministic order.
 ///
-/// Plain hexagons only exist at 7, 19, 37, ... nodes, so the shapes in between
-/// grow the 7-node hexagon with whole mirror pairs (and on-axis nodes) with
-/// respect to the vertical axis `(q, r) -> (-q, r+q)`. Every shape is
-/// connected and mirror-symmetric; 13 nodes is even six-fold symmetric (the
-/// "flower": the 7-node hexagon plus all six ring-2 edge midpoints).
+/// The candidate shapes are the subsets of the 19-cell `hexagon(2)` board
+/// that are closed under one of the lattice's six mirror axes: enumerating
+/// the mirror orbits under the two axis classes (vertical and horizontal)
+/// and rotating the results by 0/60/120 degrees covers all six. Subsets of
+/// the wrong size or split into several pieces are dropped; pieces can only
+/// move within a connected group, so a board of islands would freeze its
+/// far pieces.
+fn symmetric_candidates(nodes: usize) -> Vec<Vec<Cell>> {
+    let pool = hexagon(2);
+    let mut found: BTreeSet<Vec<Cell>> = BTreeSet::new();
+    for mirror in [mirror_v, mirror_h] {
+        let orbits = mirror_orbits(&pool, mirror);
+        for mask in 0..1u64 << orbits.len() {
+            let mut coords: Vec<Cell> = Vec::new();
+            for (bit, &(cell, twin)) in orbits.iter().enumerate() {
+                if mask >> bit & 1 == 1 {
+                    coords.push(cell);
+                    coords.extend(twin);
+                }
+            }
+            if coords.len() != nodes || !is_connected(&coords) {
+                continue;
+            }
+            // Connectivity is rotation-invariant, so checking the base
+            // orientation is enough. Rotations by 180° (and, for shapes with
+            // their own rotational symmetry, other overlapping rotations)
+            // collapse into duplicates via the set below.
+            for times in 0..3u32 {
+                let mut candidate = coords.clone();
+                for _ in 0..times {
+                    candidate = candidate.iter().copied().map(rot).collect();
+                }
+                candidate.sort_unstable();
+                found.insert(candidate);
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
+/// A mirror-symmetric board with exactly `nodes` nodes, for any count from 8
+/// to 16, picked at random from every such shape.
+///
+/// Shapes may have holes and irregular outlines (there are dozens to
+/// hundreds per node count), but they are always mirror-symmetric about one
+/// of the six lattice axes and always one connected piece. `seed` picks one
+/// of them uniformly; the same seed always yields the same shape.
 ///
 /// Panics for node counts outside `8..=16`.
-pub fn symmetric_board(nodes: usize) -> Vec<(i32, i32)> {
-    match nodes {
-        8..=15 => {
-            let mut extra: Vec<(i32, i32)> = match nodes {
-                8 => vec![(0, -2)],
-                9 => pm1(),
-                10 => [vec![(0, -2)], pm1()].concat(),
-                11 => [pm1(), pc1()].concat(),
-                12 => vec![(0, -2), (1, -2), (2, -1), (-2, 1), (-1, -1)],
-                13 => [pm1(), pm2(), pm3()].concat(),
-                14 => [[pm1(), pm2(), pm3()].concat(), vec![(0, -2)]].concat(),
-                15 => [[pm1(), pm2(), pm3()].concat(), vec![(0, -2), (0, 2)]].concat(),
-                _ => unreachable!(),
-            };
-            extra.extend(hexagon(1));
-            extra
-        }
-        16 => {
-            // hexagon(2) minus a symmetric bite out of the bottom edge.
-            hexagon(2)
-                .into_iter()
-                .filter(|&c| !matches!(c, (0, 2) | (2, 0) | (-2, 2)))
-                .collect()
-        }
-        _ => panic!("symmetric_board supports 8..=16 nodes, got {nodes}"),
-    }
-}
-
-fn pm1() -> Vec<(i32, i32)> {
-    vec![(1, -2), (-1, -1)]
-}
-
-fn pm2() -> Vec<(i32, i32)> {
-    vec![(2, -1), (-2, 1)]
-}
-
-fn pm3() -> Vec<(i32, i32)> {
-    vec![(1, 1), (-1, 2)]
-}
-
-fn pc1() -> Vec<(i32, i32)> {
-    vec![(2, -2), (-2, 0)]
+pub fn random_symmetric_board(nodes: usize, seed: u64) -> Vec<(i32, i32)> {
+    assert!(
+        (8..=16).contains(&nodes),
+        "random_symmetric_board supports 8..=16 nodes, got {nodes}"
+    );
+    let candidates = symmetric_candidates(nodes);
+    let mut rng = fastrand::Rng::with_seed(seed);
+    candidates[rng.usize(..candidates.len())].clone()
 }
 
 /// Builds the node list with precomputed neighbor tables from raw
@@ -585,52 +657,99 @@ mod tests {
         assert!(!hexagon(1).contains(&(0, 2)));
     }
 
-    #[test]
-    fn symmetric_board_shapes_are_symmetric_connected_and_sized() {
-        for nodes in 8..=16 {
-            let coords = symmetric_board(nodes);
-            assert_eq!(coords.len(), nodes, "shape of {nodes} nodes");
-
-            // Mirror invariance: (q, r) -> (-q, r+q).
-            for &(q, r) in &coords {
-                let mirrored = (-q, r + q);
-                assert!(
-                    coords.contains(&mirrored),
-                    "shape of {nodes} nodes is not mirror-symmetric at ({q}, {r})"
-                );
+    /// The mirror map about the axis obtained by rotating `mirror`'s axis by
+    /// `k` steps of 60°.
+    fn conjugate(mirror: fn(Cell) -> Cell, k: u32) -> impl Fn(Cell) -> Cell {
+        move |cell: Cell| {
+            let mut c = cell;
+            for _ in 0..k {
+                c = rot_inv(c);
             }
+            let mut out = mirror(c);
+            for _ in 0..k {
+                out = rot(out);
+            }
+            out
+        }
+    }
 
-            // Connectivity (BFS over the neighbor graph) and no isolated
-            // nodes.
-            let (built, _) = build_nodes(&coords);
-            let mut reachable = vec![false; nodes];
-            let mut stack = vec![0usize];
-            reachable[0] = true;
-            while let Some(id) = stack.pop() {
-                for neighbor in built[id].neighbors.iter().flatten() {
-                    if !reachable[*neighbor] {
-                        reachable[*neighbor] = true;
-                        stack.push(*neighbor);
+    #[test]
+    fn random_boards_are_symmetric_connected_and_sized() {
+        let pool = hexagon(2);
+        for nodes in 8..=16 {
+            for seed in 0..32u64 {
+                let coords = random_symmetric_board(nodes, seed);
+                assert_eq!(coords.len(), nodes, "shape of {nodes} nodes, seed {seed}");
+                assert!(
+                    coords.windows(2).all(|w| w[0] < w[1]),
+                    "shape of {nodes} nodes, seed {seed} is not sorted"
+                );
+
+                // Mirror invariance under at least one of the six axes.
+                let set: BTreeSet<Cell> = coords.iter().copied().collect();
+                let mut symmetric = false;
+                for mirror in [mirror_v, mirror_h] {
+                    for k in 0..3u32 {
+                        let map = conjugate(mirror, k);
+                        symmetric |= set.iter().all(|&c| set.contains(&map(c)));
                     }
                 }
-            }
-            assert!(
-                reachable.iter().all(|&seen| seen),
-                "shape of {nodes} nodes is not connected"
-            );
-            for (id, node) in built.iter().enumerate() {
                 assert!(
-                    node.neighbors.iter().any(Option::is_some),
-                    "node {id} of shape {nodes} has no in-board neighbor"
+                    symmetric,
+                    "shape of {nodes} nodes, seed {seed} is not mirror-symmetric"
                 );
+
+                assert!(
+                    coords.iter().all(|c| pool.contains(c)),
+                    "shape of {nodes} nodes, seed {seed} leaves hexagon(2)"
+                );
+                assert!(
+                    is_connected(&coords),
+                    "shape of {nodes} nodes, seed {seed} is not connected"
+                );
+
+                // Same seed, same shape.
+                assert_eq!(coords, random_symmetric_board(nodes, seed));
             }
         }
     }
 
     #[test]
+    fn every_size_offers_a_variety_of_shapes() {
+        for nodes in 8..=16 {
+            let candidates = symmetric_candidates(nodes);
+            println!("{nodes} nodes: {} shapes", candidates.len());
+            assert!(
+                candidates.len() >= 10,
+                "only {} shapes for {nodes} nodes",
+                candidates.len()
+            );
+            let unique: BTreeSet<&Vec<Cell>> = candidates.iter().collect();
+            assert_eq!(
+                unique.len(),
+                candidates.len(),
+                "duplicate shapes at {nodes} nodes"
+            );
+        }
+
+        // Known shapes stay reachable: the old 8-node board (7-node hexagon
+        // plus one pendant) and the old 16-node board (hexagon(2) with a
+        // three-cell bite out of one edge).
+        let mut old8 = hexagon(1);
+        old8.push((0, -2));
+        old8.sort_unstable();
+        assert!(symmetric_candidates(8).contains(&old8));
+        let old16: Vec<Cell> = hexagon(2)
+            .into_iter()
+            .filter(|&c| !matches!(c, (0, 2) | (2, 0) | (-2, 2)))
+            .collect();
+        assert!(symmetric_candidates(16).contains(&old16));
+    }
+
+    #[test]
     fn neighbor_tables_are_antisymmetric() {
         for nodes in 8..=16 {
-            let coords = symmetric_board(nodes);
+            let coords = random_symmetric_board(nodes, nodes as u64);
             let (built, _) = build_nodes(&coords);
             for (id, node) in built.iter().enumerate() {
                 for (i, &neighbor) in node.neighbors.iter().enumerate() {
@@ -709,7 +828,7 @@ mod tests {
     #[test]
     fn params_are_validated() {
         let valid = Params {
-            nodes: symmetric_board(8),
+            nodes: random_symmetric_board(8, 0),
             pieces: 6,
             min_arrows: 2,
             max_arrows: 3,

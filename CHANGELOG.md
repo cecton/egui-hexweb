@@ -7,6 +7,15 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-08
+
+### Changed
+
+- **Breaking:** `symmetric_board(nodes)` is now `random_symmetric_board(nodes, seed)`.
+  Instead of one fixed shape per node count, the seed picks uniformly among every
+  mirror-symmetric connected shape of that size (subsets of `hexagon(2)`, holes allowed):
+  426 shapes at 8 nodes, 989 at 12, 183 at 16.
+
 ### Added
 
 - Initial release: `HexwebGame` (game logic), `HexwebWidget` (egui widget), `Dir`, `Arrows`,

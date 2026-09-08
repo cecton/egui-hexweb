@@ -328,7 +328,7 @@ impl Iterator for EmptySets {
             self.done = true;
             return Some(result);
         }
-        self.mask = ((self.mask ^ incremented) / smallest >> 2) | incremented;
+        self.mask = (((self.mask ^ incremented) / smallest) >> 2) | incremented;
         Some(result)
     }
 }

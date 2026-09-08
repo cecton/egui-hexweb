@@ -6,7 +6,8 @@
 fn run() {
     use eframe::egui;
     use egui_hexweb::{
-        content_size, fit_cell_size, symmetric_board, GameStatus, HexwebGame, HexwebWidget, Params,
+        content_size, fit_cell_size, random_symmetric_board, GameStatus, HexwebGame, HexwebWidget,
+        Params,
     };
     use serde::{Deserialize, Serialize};
     use xtask_wasm::wasm_bindgen::JsCast as _;
@@ -35,22 +36,22 @@ fn run() {
         /// more nodes means more places a piece could belong, more pieces
         /// means more arrows to satisfy at once, and a higher arrow floor
         /// makes each piece pin more of the board.
-        fn params(self) -> Params {
+        fn params(self, seed: u64) -> Params {
             match self {
                 Self::Beginner => Params {
-                    nodes: symmetric_board(8),
+                    nodes: random_symmetric_board(8, seed),
                     pieces: 6,
                     min_arrows: 2,
                     max_arrows: 3,
                 },
                 Self::Intermediate => Params {
-                    nodes: symmetric_board(12),
+                    nodes: random_symmetric_board(12, seed),
                     pieces: 9,
                     min_arrows: 2,
                     max_arrows: 4,
                 },
                 Self::Expert => Params {
-                    nodes: symmetric_board(16),
+                    nodes: random_symmetric_board(16, seed),
                     pieces: 12,
                     min_arrows: 3,
                     max_arrows: 5,
@@ -108,7 +109,7 @@ fn run() {
                 .is_some_and(|mql| mql.matches());
 
             Self {
-                game: HexwebGame::random(selected_preset.params(), initial_seed),
+                game: HexwebGame::random(selected_preset.params(initial_seed), initial_seed),
                 selected_preset,
                 seed_counter: initial_seed,
                 scene_rect: None,
@@ -121,7 +122,7 @@ fn run() {
         fn new_game(&mut self, preset: Preset) {
             self.selected_preset = preset;
             self.seed_counter += 1;
-            self.game = HexwebGame::random(preset.params(), self.seed_counter);
+            self.game = HexwebGame::random(preset.params(self.seed_counter), self.seed_counter);
             self.scene_rect = None;
         }
 

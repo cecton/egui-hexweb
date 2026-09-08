@@ -28,7 +28,7 @@ tells you how close you are.
 - Ready-to-use egui `Widget` (`HexwebWidget`) with drag & drop plus a click-to-select fallback
 - Procedural, seeded generation (`HexwebGame::random`) that always produces a solvable board and verifies, per board, that **exactly one** placement of the pieces solves it
 - An exact counting solver (`HexwebGame::solution_count`, `HexwebGame::solution`), exhaustive over the whole placement space, fast enough to run on every generated candidate and after every repair
-- Mirror-symmetric board shapes of 8 to 16 nodes (`symmetric_board`), plus plain `hexagon` boards
+- Mirror-symmetric board shapes of 8 to 16 nodes (`random_symmetric_board`, hundreds of holey, notched, or compact shapes per size), plus plain `hexagon` boards
 - No losing state and no timer: every move is undone by moving back
 - The initial scramble is guaranteed to be neither solved nor solvable in a single move
 
@@ -38,19 +38,20 @@ Add the dependency:
 
 ```toml
 [dependencies]
-egui-hexweb = "0.1"
+egui-hexweb = "0.2"
 ```
 
 Then use it in your egui app:
 
 ```rust,ignore
-use egui_hexweb::{symmetric_board, HexwebGame, HexwebWidget, Params};
+use egui_hexweb::{random_symmetric_board, HexwebGame, HexwebWidget, Params};
 
 // A mirror-symmetric 12-node board with 9 pieces, 2-4 arrows each,
-// reproducible from a seed.
+// reproducible from a seed. The seed picks both the board shape (from every
+// symmetric connected shape of that size) and the puzzle.
 let mut game = HexwebGame::random(
     Params {
-        nodes: symmetric_board(12),
+        nodes: random_symmetric_board(12, 42),
         pieces: 9,
         min_arrows: 2,
         max_arrows: 4,
@@ -108,7 +109,7 @@ never create a new solution), and recounts, until exactly one remains.
 
 | egui-hexweb | egui |
 |-------------|------|
-| 0.1         | 0.35 |
+| 0.2         | 0.35 |
 
 ## License
 

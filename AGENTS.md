@@ -44,7 +44,7 @@ that; the u64 occupancy mask caps boards at 64 nodes.
 ## Module layout
 
 - `src/game.rs` — `Dir`, `Arrows`, `Piece`, `GameStatus`, `Node`, `Params`,
-  `HexwebGame`, the shape constructors (`hexagon`, `symmetric_board`). Pure
+  `HexwebGame`, the shape constructors (`hexagon`, `random_symmetric_board`). Pure
   logic, no `egui::Widget`/`Ui` usage. Keep it that way: it should stay usable
   headlessly (for tests, or a non-egui renderer) without pulling in painting
   code.

@@ -362,7 +362,7 @@ fn single_move_solves(nodes: &[Node], arrows: &[Arrows], cell: &[Option<PieceId>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{symmetric_board, HexwebGame, Params};
+    use crate::game::{random_symmetric_board, HexwebGame, Params};
 
     /// The three shipped presets: (nodes, pieces, min_arrows, max_arrows).
     fn presets() -> Vec<(usize, usize, usize, usize)> {
@@ -375,7 +375,7 @@ mod tests {
             for seed in 0..60u64 {
                 let game = HexwebGame::random(
                     Params {
-                        nodes: symmetric_board(nodes),
+                        nodes: random_symmetric_board(nodes, seed),
                         pieces,
                         min_arrows,
                         max_arrows,
@@ -392,7 +392,7 @@ mod tests {
                 );
                 for piece in 0..game.piece_count() {
                     assert!(
-                        game.pieces()[piece].arrows.len() >= 1,
+                        !game.pieces()[piece].arrows.is_empty(),
                         "arrowless piece at nodes={nodes} seed={seed}"
                     );
                 }
@@ -406,7 +406,7 @@ mod tests {
             for seed in 0..5u64 {
                 let mut game = HexwebGame::random(
                     Params {
-                        nodes: symmetric_board(nodes),
+                        nodes: random_symmetric_board(nodes, seed),
                         pieces,
                         min_arrows,
                         max_arrows,
@@ -417,8 +417,7 @@ mod tests {
                 // Place pieces in order, using an empty node as buffer when
                 // a destination is blocked (any permutation is reachable
                 // because the board always has at least one empty node).
-                for piece in 0..game.piece_count() {
-                    let dest = solution[piece];
+                for (piece, &dest) in solution.iter().enumerate() {
                     if game.node_of(piece) == Some(dest) {
                         continue;
                     }
@@ -443,7 +442,7 @@ mod tests {
     fn generation_is_reproducible() {
         for (nodes, pieces, min_arrows, max_arrows) in presets() {
             let params = || Params {
-                nodes: symmetric_board(nodes),
+                nodes: random_symmetric_board(nodes, 0),
                 pieces,
                 min_arrows,
                 max_arrows,
@@ -460,7 +459,7 @@ mod tests {
     fn reset_returns_to_the_scramble() {
         let mut game = HexwebGame::random(
             Params {
-                nodes: symmetric_board(12),
+                nodes: random_symmetric_board(12, 0),
                 pieces: 9,
                 min_arrows: 2,
                 max_arrows: 4,
@@ -522,7 +521,7 @@ mod tests {
             for seed in 0..samples as u64 {
                 let game = HexwebGame::random(
                     Params {
-                        nodes: symmetric_board(nodes),
+                        nodes: random_symmetric_board(nodes, seed),
                         pieces,
                         min_arrows,
                         max_arrows,

@@ -465,13 +465,13 @@ impl Widget for HexwebWidget<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{symmetric_board, Params};
+    use crate::game::{random_symmetric_board, Params};
 
     /// Beginner-shaped board: 8 nodes, 6 pieces, deterministic per seed.
     fn preset_game(nodes: usize, pieces: usize, seed: u64) -> HexwebGame {
         HexwebGame::random(
             Params {
-                nodes: symmetric_board(nodes),
+                nodes: random_symmetric_board(nodes, seed),
                 pieces,
                 min_arrows: 2,
                 max_arrows: 4,
@@ -687,7 +687,7 @@ mod tests {
         let from = occupied_node(&harness.game);
         let piece = harness.game.piece_at(from).unwrap();
         let taken = (0..harness.game.node_count())
-            .find(|&node| Some(piece) != harness.game.piece_at(node))
+            .find(|&node| node != from && harness.game.piece_at(node).is_some())
             .expect("a second occupied node exists");
 
         harness.press(harness.center(from));
