@@ -7,6 +7,15 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-08
+
+### Removed
+
+- The click-to-select fallback: drag & drop is now the only input, and a
+  plain click does nothing. Touch devices drag natively, and the game has no
+  losing state, so there is nothing a second input style could protect
+  against. The `HexwebWidget` now senses only drags; no public items changed
+
 ## [0.3.0] - 2026-09-08
 
 ### Added
@@ -42,6 +51,7 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-hexweb/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cecton/egui-hexweb/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cecton/egui-hexweb/releases/tag/v0.4.0
 [0.3.0]: https://github.com/cecton/egui-hexweb/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cecton/egui-hexweb/releases/tag/v0.2.0

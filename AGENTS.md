@@ -12,8 +12,8 @@ be pulled into other egui apps as a dependency.
 
 The puzzle: a small patch of hexagonal lattice with fewer pieces than nodes.
 Every piece carries 1-6 arrows pointing along the six lattice directions.
-Pieces move to any free node, or onto an occupied node to swap the two
-pieces (drag & drop, plus click-to-select); the puzzle is solved when
+Pieces move by drag & drop, to any free node or onto an occupied node to
+swap the two; the puzzle is solved when
 **every arrow of every piece points at an occupied node**.
 
 "Hexa Arrows" is a trademarked product name of an existing mobile puzzle —

@@ -25,7 +25,7 @@ tells you how close you are.
 ## Features
 
 - Pure game logic struct (`HexwebGame`) with no `egui::Ui` dependency, usable headlessly or with any renderer
-- Ready-to-use egui `Widget` (`HexwebWidget`) with drag & drop (moving onto empty nodes, swapping onto occupied ones) plus a click-to-select fallback
+- Ready-to-use egui `Widget` (`HexwebWidget`) with drag & drop: moving onto empty nodes, swapping onto occupied ones
 - Procedural, seeded generation (`HexwebGame::random`) that always produces a solvable board and verifies, per board, that **exactly one** placement of the pieces solves it
 - An exact counting solver (`HexwebGame::solution_count`, `HexwebGame::solution`), exhaustive over the whole placement space, fast enough to run on every generated candidate and after every repair
 - Mirror-symmetric board shapes of 8 to 16 nodes (`random_symmetric_board`, hundreds of holey, notched, or compact shapes per size), plus plain `hexagon` boards
@@ -38,7 +38,7 @@ Add the dependency:
 
 ```toml
 [dependencies]
-egui-hexweb = "0.3"
+egui-hexweb = "0.4"
 ```
 
 Then use it in your egui app:
@@ -109,6 +109,7 @@ never create a new solution), and recounts, until exactly one remains.
 
 | egui-hexweb | egui |
 |-------------|------|
+| 0.4         | 0.35 |
 | 0.3         | 0.35 |
 | 0.2         | 0.35 |
 
