@@ -9,17 +9,20 @@ Versioning](semver).
 
 ## [0.2.0] - 2026-09-08
 
-### Changed
-
-- **Breaking:** `symmetric_board(nodes)` is now `random_symmetric_board(nodes, seed)`.
-  Instead of one fixed shape per node count, the seed picks uniformly among every
-  mirror-symmetric connected shape of that size (subsets of `hexagon(2)`, holes allowed):
-  426 shapes at 8 nodes, 989 at 12, 183 at 16.
-
 ### Added
 
 - Initial release: `HexwebGame` (game logic), `HexwebWidget` (egui widget), `Dir`, `Arrows`,
   `Piece`, `GameStatus`, `content_size` and `fit_cell_size`
+- `HexwebGame::random` generates a seeded puzzle that always has a solution by
+  construction and verifies, with an exact counting solver, that exactly one placement of
+  the pieces solves it. The scramble is neither solved nor one move away from solved
+- `random_symmetric_board(nodes, seed)`: a random mirror-symmetric board per seed, picked
+  uniformly among every connected shape of that size over `hexagon(2)` (holes allowed):
+  426 shapes at 8 nodes, 989 at 12, 183 at 16
+- Live feedback while playing: unsatisfied arrows are drawn in the accent color, and the
+  win is latched behind an in-widget banner
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
+[Unreleased]: https://github.com/cecton/egui-hexweb/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cecton/egui-hexweb/releases/tag/v0.2.0
