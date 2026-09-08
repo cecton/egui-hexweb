@@ -3,10 +3,9 @@
 //!
 //! # Interaction model
 //!
-//! Pieces move by drag & drop, with a click-to-select fallback: press a
-//! piece and release it over any node that can take it, or click a piece
-//! and then click where it should go. An empty node takes the piece as a
-//! move; an occupied one swaps the two pieces. While a piece is dragged it
+//! Pieces move by drag & drop: press a piece and release it over any node
+//! that can take it. An empty node takes the piece as a move; an occupied
+//! one swaps the two pieces. While a piece is dragged it
 //! goes translucent at its origin and every node the drop could land on
 //! grows a landing ring, the nearest one emphasized; releasing anywhere
 //! that is not a legal target (the piece's own node included, where the
@@ -38,7 +37,7 @@ const ARROW_BACK: f32 = 0.30;
 const ARROW_SPREAD: f32 = 0.17;
 /// Arrow stroke width, as a fraction of the cell size.
 const ARROW_STROKE: f32 = 0.085;
-/// Radius of the landing and selection rings, as a fraction of the cell
+/// Radius of the landing rings, as a fraction of the cell
 /// size. Under the socket apothem (`sqrt(3)/2`) so rings stay inside the
 /// node they mark.
 const RING_RADIUS: f32 = 0.80;
@@ -172,7 +171,7 @@ impl Geometry {
 /// An egui widget that renders an interactive hexweb board.
 ///
 /// Drag a piece onto an empty node to move it there, or onto another piece
-/// to swap the two, or click a piece and then click an empty destination.
+/// to swap the two.
 /// Arrows pointing at another piece are drawn in
 /// `satisfied_color`; the ones still pointing at an empty node or off the
 /// board are drawn in `unsatisfied_color`, which is the board's live
@@ -256,7 +255,7 @@ impl Widget for HexwebWidget<'_> {
         let total_size = content_size(game, cell);
 
         let sense = if interactive {
-            Sense::click_and_drag()
+            Sense::drag()
         } else {
             Sense::hover()
         };
@@ -264,57 +263,27 @@ impl Widget for HexwebWidget<'_> {
         let geometry = Geometry::new(response.rect.min, cell, game);
 
         // ── Input ────────────────────────────────────────────────────────
-        // The dragged (or selected) piece is stashed in egui's per-widget
-        // temp memory so a gesture spans frames without the game holding
+        // The dragged piece is stashed in egui's per-widget temp memory so
+        // a gesture spans frames without the game holding
         // any presentation state.
         let drag_id = response.id.with("hexweb_drag_piece");
-        let select_id = response.id.with("hexweb_selected_piece");
         let can_play = interactive && game.status() == GameStatus::InProgress;
         let pointer = response.interact_pointer_pos();
         let mut dragging: Option<PieceId> = ui.ctx().data(|d| d.get_temp(drag_id));
 
-        if can_play {
-            if response.clicked() {
-                // A stationary press+release never fires `drag_started()`,
-                // so the click path owns both selection and click-to-move.
-                let hit = pointer.and_then(|pos| geometry.node_at(game, pos));
-                let hit_piece = hit.and_then(|node| game.piece_at(node));
-                if let Some(piece) = hit_piece {
-                    let already =
-                        ui.ctx().data(|d| d.get_temp::<PieceId>(select_id)) == Some(piece);
-                    ui.ctx().data_mut(|d| {
-                        if already {
-                            d.remove_temp::<PieceId>(select_id);
-                        } else {
-                            d.insert_temp(select_id, piece);
-                        }
-                    });
-                } else if let Some(node) = hit {
-                    if let Some(selected) = ui.ctx().data(|d| d.get_temp::<PieceId>(select_id)) {
-                        if game.move_piece(selected, node) {
-                            ui.ctx().data_mut(|d| d.remove_temp::<PieceId>(select_id));
-                        }
-                    }
-                } else {
-                    ui.ctx().data_mut(|d| d.remove_temp::<PieceId>(select_id));
-                }
-            } else if response.drag_started() {
-                // Hit-test where the press started, not where the pointer
-                // is now: the first move event can already have crossed
-                // into a neighboring node's cell, and grabbing whatever
-                // piece happens to be under the *current* pointer would
-                // steal the wrong piece on a fast flick.
-                let grabbed = ui
-                    .input(|i| i.pointer.press_origin())
-                    .and_then(|pos| geometry.node_at(game, pos))
-                    .and_then(|node| game.piece_at(node));
-                if let Some(piece) = grabbed {
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp(drag_id, piece);
-                        d.remove_temp::<PieceId>(select_id);
-                    });
-                    dragging = Some(piece);
-                }
+        if can_play && response.drag_started() {
+            // Hit-test where the press started, not where the pointer
+            // is now: the first move event can already have crossed
+            // into a neighboring node's cell, and grabbing whatever
+            // piece happens to be under the *current* pointer would
+            // steal the wrong piece on a fast flick.
+            let grabbed = ui
+                .input(|i| i.pointer.press_origin())
+                .and_then(|pos| geometry.node_at(game, pos))
+                .and_then(|node| game.piece_at(node));
+            if let Some(piece) = grabbed {
+                ui.ctx().data_mut(|d| d.insert_temp(drag_id, piece));
+                dragging = Some(piece);
             }
         }
 
@@ -357,11 +326,6 @@ impl Widget for HexwebWidget<'_> {
             {
                 if game.piece_at(node).is_some() {
                     ui.ctx().set_cursor_icon(CursorIcon::Grab);
-                } else if ui
-                    .ctx()
-                    .data(|d| d.get_temp::<PieceId>(select_id).is_some())
-                {
-                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                 }
             }
         }
@@ -386,19 +350,6 @@ impl Widget for HexwebWidget<'_> {
                 socket_fill,
                 Stroke::new(1.0, socket_edge),
             ));
-        }
-
-        // Selection ring for the click-to-select fallback.
-        if can_play && dragging.is_none() {
-            if let Some(selected) = ui.ctx().data(|d| d.get_temp::<PieceId>(select_id)) {
-                if let Some(node) = game.node_of(selected) {
-                    painter.circle_stroke(
-                        geometry.center(&game.nodes()[node]),
-                        cell * RING_RADIUS,
-                        Stroke::new(cell * 0.075, satisfied_color),
-                    );
-                }
-            }
         }
 
         // Pieces and their arrows, on top of everything.
@@ -554,10 +505,10 @@ mod tests {
 
     const TEST_CELL: f32 = 24.0;
 
-    /// Runs the widget in a real `egui` pass so clicks and drags are
-    /// exercised end to end: the click/drag split, the temp-memory gesture
-    /// state, and the drop logic only behave correctly through egui's own
-    /// pointer machinery, which a plain method call can't check.
+    /// Runs the widget in a real `egui` pass so drags are exercised end to
+    /// end: the temp-memory gesture state and the drop logic only behave
+    /// correctly through egui's own pointer machinery, which a plain method
+    /// call can't check.
     struct Harness {
         ctx: egui::Context,
         game: HexwebGame,
@@ -631,11 +582,6 @@ mod tests {
                 },
             ]);
         }
-
-        fn click(&mut self, pos: Pos2) {
-            self.press(pos);
-            self.release(pos);
-        }
     }
 
     fn empty_node(game: &HexwebGame) -> NodeId {
@@ -648,38 +594,6 @@ mod tests {
         (0..game.node_count())
             .find(|&node| game.piece_at(node).is_some())
             .expect("presets always have pieces")
-    }
-
-    #[test]
-    fn click_piece_then_empty_node_moves_it() {
-        let mut harness = Harness::new(preset_game(8, 6, 11));
-        let from = occupied_node(&harness.game);
-        let piece = harness.game.piece_at(from).unwrap();
-        let target = empty_node(&harness.game);
-
-        harness.click(harness.center(from));
-        assert_eq!(harness.game.node_of(piece), Some(from), "select only");
-        harness.click(harness.center(target));
-
-        assert_eq!(harness.game.node_of(piece), Some(target));
-        assert_eq!(harness.game.moves(), 1);
-    }
-
-    #[test]
-    fn clicking_an_empty_node_without_a_selection_does_nothing() {
-        let mut harness = Harness::new(preset_game(8, 6, 11));
-        harness.click(harness.center(empty_node(&harness.game)));
-        assert_eq!(harness.game.moves(), 0);
-    }
-
-    #[test]
-    fn clicking_the_selected_piece_again_deselects_it() {
-        let mut harness = Harness::new(preset_game(8, 6, 11));
-        let from = occupied_node(&harness.game);
-        harness.click(harness.center(from));
-        harness.click(harness.center(from));
-        harness.click(harness.center(empty_node(&harness.game)));
-        assert_eq!(harness.game.moves(), 0);
     }
 
     #[test]
@@ -838,11 +752,8 @@ mod tests {
         let taken = (0..harness.game.node_count())
             .find(|&node| node != from && harness.game.piece_at(node).is_some())
             .expect("a second occupied node exists");
-        // Clicks no longer select or move...
-        harness.click(harness.center(from));
-        harness.click(harness.center(target));
-        // ...and drags no longer pick anything up, neither onto an empty
-        // node nor onto another piece to swap.
+        // Drags no longer pick anything up: neither onto an empty node nor
+        // onto another piece to swap.
         harness.press(harness.center(from));
         harness.drag(harness.center(from) + Vec2::new(16.0, 16.0));
         harness.release(harness.center(target));

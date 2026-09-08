@@ -177,8 +177,8 @@ fn run() {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
                 ui.label(
-                    "Drag a piece onto any empty node (or click a piece, then its destination). \
-                     Arrows must all point at another piece.",
+                    "Drag a piece onto an empty node to move it, or onto another piece to swap \
+                     the two. Arrows must all point at another piece.",
                 );
                 ui.add_space(8.0);
                 ui.add(HexwebWidget::new(&mut self.game));
