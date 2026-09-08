@@ -1,0 +1,24 @@
+{
+  "name": "egui-hexweb",
+  "short_name": "Hexweb",
+  "description": "Hexagonal arrow-connection puzzle game for egui",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#17102E",
+  "background_color": "#17102E",
+  "icons": [
+    {
+      "src": "./icons/512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    }
+  ]
+}

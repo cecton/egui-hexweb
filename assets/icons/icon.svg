@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">egui-hexweb icon</title>
+  <desc id="desc">Three hexagonal pieces on a light tile, their chevron arrows pointing at each other except one, drawn in accent red, still pointing at nothing.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#241A3E"/>
+      <stop offset="100%" stop-color="#140F26"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F6F2FA"/>
+      <stop offset="100%" stop-color="#DED6EA"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bg)"/>
+  <rect x="96" y="102" width="336" height="336" rx="54" fill="#000000" opacity="0.22"/>
+  <rect x="88" y="88" width="336" height="336" rx="54" fill="url(#tile)"/>
+
+  <!-- Three pieces of the puzzle, placed on the hex lattice: A top-left,
+       B right (one lattice step down-right of A), C below A. -->
+  <g stroke="#4A3D66" stroke-width="5" stroke-linejoin="round">
+    <polygon fill="#6B5B8E" points="242,170 211,223.7 149,223.7 118,170 149,116.3 211,116.3"/>
+    <polygon fill="#6B5B8E" points="374,246 343,299.7 281,299.7 250,246 281,192.3 343,192.3"/>
+    <polygon fill="#6B5B8E" points="242,322 211,375.7 149,375.7 118,322 149,268.3 211,268.3"/>
+  </g>
+
+  <!--
+    One chevron per piece, the way the widget paints arrows. A points
+    right-down at B and B points left-down at C: satisfied. C still points
+    down at an empty node: unsatisfied, in the accent color.
+  -->
+  <g fill="none" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="188.3,187.5 209.4,187 199.3,168.5" stroke="#2A2140"/>
+    <polyline points="303.7,255.5 282.6,263 292.7,236.5" stroke="#2A2140"/>
+    <polyline points="169,338 180,356 191,338" stroke="#E2574C"/>
+  </g>
+</svg>
