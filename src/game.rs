@@ -461,7 +461,8 @@ impl HexwebGame {
 
     /// Whether `piece` may be moved to `to` right now: the game must be
     /// unfinished, `to` must be an in-board node, and it must be empty and
-    /// not `piece`'s own node.
+    /// not `piece`'s own node. The other way a piece can land is onto an
+    /// occupied node, swapping the two: see [`HexwebGame::can_swap`].
     pub fn can_move(&self, piece: PieceId, to: NodeId) -> bool {
         if self.status != GameStatus::InProgress || to >= self.nodes.len() {
             return false;
@@ -486,6 +487,40 @@ impl HexwebGame {
         self.cell_piece[from] = None;
         self.cell_piece[to] = Some(piece);
         self.moves += 1;
+        if self.is_solved() {
+            self.status = GameStatus::Won;
+        }
+        true
+    }
+
+    /// Whether pieces `a` and `b` may be swapped right now: the game must be
+    /// unfinished and both pieces must be placed and distinct. Two pieces
+    /// with identical arrows may be swapped, but the swap is a free no-op
+    /// (see [`HexwebGame::swap_pieces`]).
+    pub fn can_swap(&self, a: PieceId, b: PieceId) -> bool {
+        self.status == GameStatus::InProgress
+            && a != b
+            && self.node_of(a).is_some()
+            && self.node_of(b).is_some()
+    }
+
+    /// Exchanges the nodes of the two placed pieces `a` and `b`. Returns
+    /// whether the swap happened; illegal swaps (see
+    /// [`HexwebGame::can_swap`]) leave the board unchanged. Counts the move
+    /// and latches the win when the board becomes solved. Pieces with
+    /// identical arrows are interchangeable, so swapping two of them leaves
+    /// the move counter alone.
+    pub fn swap_pieces(&mut self, a: PieceId, b: PieceId) -> bool {
+        if !self.can_swap(a, b) {
+            return false;
+        }
+        let from = self.node_of(a).unwrap();
+        let to = self.node_of(b).unwrap();
+        self.cell_piece[from] = Some(b);
+        self.cell_piece[to] = Some(a);
+        if self.pieces[a] != self.pieces[b] {
+            self.moves += 1;
+        }
         if self.is_solved() {
             self.status = GameStatus::Won;
         }
@@ -823,6 +858,102 @@ mod tests {
         assert_eq!(game.moves(), 0);
         assert_eq!(game.piece_at(1), Some(0));
         assert!(!game.is_solved());
+    }
+
+    /// A 4-node vertical line: node 0 at (0,0), node 1 at (0,-1), node 2 at
+    /// (0,1), node 3 at (0,2). Piece 0 (arrow Up) sits on node 0, piece 1
+    /// (arrow Down) on node 3, nodes 1 and 2 stay empty: piece 0 points at
+    /// the empty node 1 and piece 1 points off-board, so the game is
+    /// unsolved, and swapping the two is a legal move that doesn't solve it.
+    fn long_line_game() -> HexwebGame {
+        let (nodes, _) = build_nodes(&[(0, 0), (0, -1), (0, 1), (0, 2)]);
+        let pieces = vec![
+            Piece {
+                arrows: Arrows::from_dir(Dir::Up),
+            },
+            Piece {
+                arrows: Arrows::from_dir(Dir::Down),
+            },
+        ];
+        let cell_piece = vec![Some(0), None, None, Some(1)];
+        HexwebGame::from_parts(nodes, pieces, cell_piece.clone(), cell_piece)
+    }
+
+    /// Like [`long_line_game`], but both pieces carry the same single Up
+    /// arrow, so the two are interchangeable.
+    fn identical_pair_game() -> HexwebGame {
+        let (nodes, _) = build_nodes(&[(0, 0), (0, -1), (0, 1), (0, 2)]);
+        let pieces = vec![
+            Piece {
+                arrows: Arrows::from_dir(Dir::Up),
+            },
+            Piece {
+                arrows: Arrows::from_dir(Dir::Up),
+            },
+        ];
+        let cell_piece = vec![Some(0), None, None, Some(1)];
+        HexwebGame::from_parts(nodes, pieces, cell_piece.clone(), cell_piece)
+    }
+
+    #[test]
+    fn swapping_pieces_exchanges_nodes_and_counts_a_move() {
+        let mut game = long_line_game();
+        assert!(game.can_swap(0, 1));
+        let (node_a, node_b) = (game.node_of(0), game.node_of(1));
+        assert!(game.swap_pieces(0, 1));
+        assert_eq!(game.node_of(0), node_b);
+        assert_eq!(game.node_of(1), node_a);
+        assert_eq!(game.moves(), 1);
+        assert_eq!(game.status(), GameStatus::InProgress);
+    }
+
+    #[test]
+    fn winning_swap_latches_and_reset_restores() {
+        let mut game = line_game();
+        // Swapping the two pieces solves it: each lands pointing at the
+        // other.
+        assert!(game.swap_pieces(0, 1));
+        assert_eq!(game.moves(), 1);
+        assert!(game.is_solved());
+        assert_eq!(game.status(), GameStatus::Won);
+
+        // The win is latched: no further swaps are accepted.
+        assert!(!game.can_swap(0, 1));
+        assert!(!game.swap_pieces(0, 1));
+        assert_eq!(game.moves(), 1);
+
+        game.reset();
+        assert_eq!(game.status(), GameStatus::InProgress);
+        assert_eq!(game.moves(), 0);
+        assert_eq!(game.node_of(0), Some(1));
+        assert_eq!(game.node_of(1), Some(0));
+        assert!(!game.is_solved());
+    }
+
+    #[test]
+    fn illegal_swaps_are_rejected() {
+        let mut game = long_line_game();
+        assert!(!game.can_swap(0, 0)); // same piece
+        assert!(!game.can_swap(0, 7)); // no such piece
+        assert!(!game.swap_pieces(0, 0));
+        assert!(!game.swap_pieces(0, 7));
+        assert_eq!(game.moves(), 0);
+        assert_eq!(game.node_of(0), Some(0));
+        assert_eq!(game.node_of(1), Some(3));
+    }
+
+    #[test]
+    fn swapping_identical_pieces_does_not_count_a_move() {
+        let mut game = identical_pair_game();
+        assert!(game.can_swap(0, 1));
+        let (node_a, node_b) = (game.node_of(0), game.node_of(1));
+        assert!(game.swap_pieces(0, 1));
+        assert_eq!(game.node_of(0), node_b);
+        assert_eq!(game.node_of(1), node_a);
+        // Interchangeable pieces: the position is unchanged, so the swap is
+        // free.
+        assert_eq!(game.moves(), 0);
+        assert_eq!(game.status(), GameStatus::InProgress);
     }
 
     #[test]

@@ -24,8 +24,8 @@
 //!    from the constructed solution. Every walk state is reachable from the
 //!    solution by legal play (moves are reversible), so the puzzle can never
 //!    be scrambled into a dead end. The walk is redone unless the result is
-//!    not solved, not solvable in a single move, and has displaced at least
-//!    half the pieces.
+//!    not solved, not solvable in a single move or swap, and has displaced
+//!    at least half the pieces.
 //!
 //! If `ATTEMPTS` full constructions fail to produce a unique board (never
 //! observed at the shipped sizes — the exhaustive solver makes uniqueness
@@ -319,6 +319,9 @@ fn is_good_scramble(
     if single_move_solves(nodes, arrows, cell) {
         return false;
     }
+    if single_swap_solves(nodes, arrows, cell) {
+        return false;
+    }
     // At least half the pieces must have left their solution node (with
     // identical pieces this is approximate, which is fine for an
     // anti-triviality heuristic).
@@ -359,6 +362,32 @@ fn single_move_solves(nodes: &[Node], arrows: &[Arrows], cell: &[Option<PieceId>
     false
 }
 
+/// Whether swapping the occupants of two nodes would solve the placement.
+/// Two identical pieces trade places for nothing, so those pairs can't
+/// newly solve anything and are skipped.
+fn single_swap_solves(nodes: &[Node], arrows: &[Arrows], cell: &[Option<PieceId>]) -> bool {
+    for a in 0..cell.len() {
+        let Some(piece_a) = cell[a] else {
+            continue;
+        };
+        for b in (a + 1)..cell.len() {
+            let Some(piece_b) = cell[b] else {
+                continue;
+            };
+            if arrows[piece_a] == arrows[piece_b] {
+                continue;
+            }
+            let mut swapped = cell.to_vec();
+            swapped[a] = Some(piece_b);
+            swapped[b] = Some(piece_a);
+            if is_solved_placement(nodes, arrows, &swapped) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,6 +418,10 @@ mod tests {
                 assert!(
                     !single_move_solves(game.nodes(), &game_pieces(&game), &scramble_of(&game)),
                     "one move from victory at nodes={nodes} seed={seed}"
+                );
+                assert!(
+                    !single_swap_solves(game.nodes(), &game_pieces(&game), &scramble_of(&game)),
+                    "one swap from victory at nodes={nodes} seed={seed}"
                 );
                 for piece in 0..game.piece_count() {
                     assert!(

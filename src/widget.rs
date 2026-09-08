@@ -4,12 +4,15 @@
 //! # Interaction model
 //!
 //! Pieces move by drag & drop, with a click-to-select fallback: press a
-//! piece and release it over any empty node, or click a piece and then
-//! click where it should go. While a piece is dragged it goes translucent
-//! at its origin and every empty node grows a landing ring, the nearest
-//! one emphasized; releasing anywhere that is not a legal target snaps the
-//! piece back. A piece never leaves its node until the gesture commits, so
-//! a drag that ends badly is not a move at all.
+//! piece and release it over any node that can take it, or click a piece
+//! and then click where it should go. An empty node takes the piece as a
+//! move; an occupied one swaps the two pieces. While a piece is dragged it
+//! goes translucent at its origin and every node the drop could land on
+//! grows a landing ring, the nearest one emphasized; releasing anywhere
+//! that is not a legal target (the piece's own node included, where the
+//! swap would change nothing) snaps the piece back. A piece never leaves
+//! its node until the gesture commits, so a drag that ends badly is not a
+//! move at all.
 
 use std::f32::consts::TAU;
 
@@ -105,6 +108,17 @@ fn draw_arrow(painter: &egui::Painter, center: Pos2, dir: Dir, radius: f32, stro
     painter.add(Shape::line(vec![back + spread, tip, back - spread], stroke));
 }
 
+/// Whether dropping `piece` on `node` would land: an empty node takes a
+/// move, an occupied one takes a swap with its piece. The piece's own node
+/// never qualifies, so the highlighted target always marks a drop that
+/// actually lands.
+fn can_drop_at(game: &HexwebGame, piece: PieceId, node: NodeId) -> bool {
+    match game.piece_at(node) {
+        Some(other) => other != piece && game.can_swap(piece, other),
+        None => game.can_move(piece, node),
+    }
+}
+
 /// The mapping between board nodes and screen positions for one widget
 /// pass. Shared by painting and hit-testing so the two can never drift
 /// apart.
@@ -157,8 +171,9 @@ impl Geometry {
 
 /// An egui widget that renders an interactive hexweb board.
 ///
-/// Drag a piece onto any empty node, or click a piece and then click its
-/// destination. Arrows pointing at another piece are drawn in
+/// Drag a piece onto an empty node to move it there, or onto another piece
+/// to swap the two, or click a piece and then click an empty destination.
+/// Arrows pointing at another piece are drawn in
 /// `satisfied_color`; the ones still pointing at an empty node or off the
 /// board are drawn in `unsatisfied_color`, which is the board's live
 /// progress feedback. The puzzle is solved when no arrow is unsatisfied.
@@ -308,7 +323,7 @@ impl Widget for HexwebWidget<'_> {
             dragging.and_then(|piece| {
                 pointer
                     .and_then(|pos| geometry.node_at(game, pos))
-                    .filter(|&node| game.can_move(piece, node))
+                    .filter(|&node| can_drop_at(game, piece, node))
             })
         } else {
             None
@@ -318,9 +333,16 @@ impl Widget for HexwebWidget<'_> {
             if let Some(piece) = ui.ctx().data_mut(|d| d.remove_temp::<PieceId>(drag_id)) {
                 if let Some(node) = pointer
                     .and_then(|pos| geometry.node_at(game, pos))
-                    .filter(|&node| game.can_move(piece, node))
+                    .filter(|&node| can_drop_at(game, piece, node))
                 {
-                    game.move_piece(piece, node);
+                    match game.piece_at(node) {
+                        Some(other) => {
+                            game.swap_pieces(piece, other);
+                        }
+                        None => {
+                            game.move_piece(piece, node);
+                        }
+                    }
                 }
             }
             dragging = None;
@@ -364,22 +386,6 @@ impl Widget for HexwebWidget<'_> {
                 socket_fill,
                 Stroke::new(1.0, socket_edge),
             ));
-        }
-
-        // Landing rings while a piece is in the air: a faint ring on every
-        // empty node, a strong one on the node the piece would drop on.
-        if can_play && dragging.is_some() {
-            for (id, node) in game.nodes().iter().enumerate() {
-                if game.piece_at(id).is_some() {
-                    continue;
-                }
-                let stroke = if drag_target == Some(id) {
-                    Stroke::new(cell * 0.10, satisfied_color)
-                } else {
-                    Stroke::new(cell * 0.05, piece_fill)
-                };
-                painter.circle_stroke(geometry.center(node), cell * RING_RADIUS, stroke);
-            }
         }
 
         // Selection ring for the click-to-select fallback.
@@ -427,6 +433,32 @@ impl Widget for HexwebWidget<'_> {
             }
         }
 
+        // Landing rings while a piece is in the air: a faint ring on every
+        // node the drop could land on (empty ones, and pieces that would be
+        // swapped), a strong one on the node it would land on right now.
+        // Painted over the pieces, so a ring on an occupied node stays
+        // visible; the radius clears the arrow tips.
+        if can_play {
+            if let Some(dragged) = dragging {
+                for (id, node) in game.nodes().iter().enumerate() {
+                    if !can_drop_at(game, dragged, id) {
+                        continue;
+                    }
+                    let faint = if game.piece_at(id).is_some() {
+                        piece_edge
+                    } else {
+                        piece_fill
+                    };
+                    let stroke = if drag_target == Some(id) {
+                        Stroke::new(cell * 0.10, satisfied_color)
+                    } else {
+                        Stroke::new(cell * 0.05, faint)
+                    };
+                    painter.circle_stroke(geometry.center(node), cell * RING_RADIUS, stroke);
+                }
+            }
+        }
+
         // Win banner, drawn last so it sits on top of everything else.
         if game.status() == GameStatus::Won {
             let message = win_message.unwrap_or_else(|| "Solved!".to_owned());
@@ -465,7 +497,7 @@ impl Widget for HexwebWidget<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{random_symmetric_board, Params};
+    use crate::game::{build_nodes, random_symmetric_board, Arrows, Params, Piece};
 
     /// Beginner-shaped board: 8 nodes, 6 pieces, deterministic per seed.
     fn preset_game(nodes: usize, pieces: usize, seed: u64) -> HexwebGame {
@@ -681,20 +713,81 @@ mod tests {
         assert_eq!(harness.game.moves(), 0);
     }
 
+    /// A node (other than `except`) holding a piece the given one may swap
+    /// with, if any.
+    fn swappable_node(game: &HexwebGame, piece: PieceId, except: NodeId) -> Option<NodeId> {
+        (0..game.node_count()).find(|&node| match game.piece_at(node) {
+            Some(other) => node != except && game.can_swap(piece, other),
+            None => false,
+        })
+    }
+
     #[test]
-    fn dropping_on_an_occupied_node_snaps_back() {
+    fn dropping_on_an_occupied_node_swaps_the_pieces() {
         let mut harness = Harness::new(preset_game(12, 9, 5));
+        let from = occupied_node(&harness.game);
+        let piece = harness.game.piece_at(from).unwrap();
+        let taken = swappable_node(&harness.game, piece, from)
+            .expect("some other piece carries different arrows");
+        let taken_piece = harness.game.piece_at(taken).unwrap();
+
+        harness.press(harness.center(from));
+        // Cross egui's drag radius so this becomes a drag, not a click.
+        harness.drag(harness.center(from) + Vec2::new(16.0, 16.0));
+        harness.release(harness.center(taken));
+
+        assert_eq!(harness.game.node_of(piece), Some(taken));
+        assert_eq!(harness.game.node_of(taken_piece), Some(from));
+        assert_eq!(harness.game.moves(), 1);
+    }
+
+    #[test]
+    fn releasing_on_the_dragged_pieces_own_node_snaps_back() {
+        let mut harness = Harness::new(preset_game(12, 9, 5));
+        let from = occupied_node(&harness.game);
+        let piece = harness.game.piece_at(from).unwrap();
+
+        harness.press(harness.center(from));
+        harness.drag(harness.center(from) + Vec2::new(16.0, 16.0));
+        harness.release(harness.center(from));
+
+        assert_eq!(harness.game.node_of(piece), Some(from));
+        assert_eq!(harness.game.moves(), 0);
+    }
+
+    /// Two identical pieces on a 4-node line, far enough apart that both
+    /// arrows point at empty nodes. Any seed does; this keeps the
+    /// identical-pair test independent of the presets.
+    fn identical_pair_game() -> HexwebGame {
+        let (nodes, _) = build_nodes(&[(0, 0), (0, -1), (0, 1), (0, 2)]);
+        let pieces = vec![
+            Piece {
+                arrows: Arrows::from_dir(Dir::Up),
+            },
+            Piece {
+                arrows: Arrows::from_dir(Dir::Up),
+            },
+        ];
+        let cell_piece = vec![Some(0), None, None, Some(1)];
+        HexwebGame::from_parts(nodes, pieces, cell_piece.clone(), cell_piece)
+    }
+
+    #[test]
+    fn dropping_on_an_identical_piece_is_free() {
+        let mut harness = Harness::new(identical_pair_game());
         let from = occupied_node(&harness.game);
         let piece = harness.game.piece_at(from).unwrap();
         let taken = (0..harness.game.node_count())
             .find(|&node| node != from && harness.game.piece_at(node).is_some())
-            .expect("a second occupied node exists");
+            .expect("the second piece exists");
 
         harness.press(harness.center(from));
         harness.drag(harness.center(from) + Vec2::new(16.0, 16.0));
         harness.release(harness.center(taken));
 
-        assert_eq!(harness.game.node_of(piece), Some(from));
+        // The pieces trade places, but they are interchangeable, so the
+        // swap costs no move.
+        assert_eq!(harness.game.node_of(piece), Some(taken));
         assert_eq!(harness.game.moves(), 0);
     }
 
@@ -742,13 +835,20 @@ mod tests {
 
         let from = occupied_node(&harness.game);
         let target = empty_node(&harness.game);
+        let taken = (0..harness.game.node_count())
+            .find(|&node| node != from && harness.game.piece_at(node).is_some())
+            .expect("a second occupied node exists");
         // Clicks no longer select or move...
         harness.click(harness.center(from));
         harness.click(harness.center(target));
-        // ...and drags no longer pick anything up.
+        // ...and drags no longer pick anything up, neither onto an empty
+        // node nor onto another piece to swap.
         harness.press(harness.center(from));
         harness.drag(harness.center(from) + Vec2::new(16.0, 16.0));
         harness.release(harness.center(target));
+        harness.press(harness.center(from));
+        harness.drag(harness.center(from) + Vec2::new(16.0, 16.0));
+        harness.release(harness.center(taken));
 
         assert_eq!(harness.game.moves(), moves);
     }
