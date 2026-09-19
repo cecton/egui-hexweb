@@ -539,10 +539,13 @@ mod tests {
             };
             let game = &mut self.game;
             let rect = std::cell::Cell::new(Rect::ZERO);
-            let _ = self.ctx.run_ui(input, |ui| {
+            let mut output = self.ctx.run_ui(input, |ui| {
                 let response = ui.add(HexwebWidget::new(game).cell_size(TEST_CELL));
                 rect.set(response.rect);
             });
+            // egui 0.36 panics if texture deltas are dropped unapplied; the
+            // tests never render, so discard them.
+            output.textures_delta.clear();
             self.rect = rect.get();
             self.rect
         }

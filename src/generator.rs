@@ -94,7 +94,7 @@ pub(crate) fn generate(
                 rng,
             );
         }
-        if best.as_ref().map_or(true, |best| rank < best.rank) {
+        if best.as_ref().is_none_or(|best| rank < best.rank) {
             best = Some(Candidate {
                 arrows,
                 solution_nodes,

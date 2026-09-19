@@ -7,12 +7,20 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-19
+
 ### Removed
 
 - The web demo's drag-to-pan (and pinch/ctrl-wheel zoom) view on narrow viewports and touch
   devices, inherited from the egui-minesweeper template where big boards need it. Hexweb boards
   always fit the viewport, so the board is now laid out directly and centered instead of living in
   an `egui::Scene`
+
+### Changed
+
+- Updated egui to 0.36.
+- The test harness now clears egui's `textures_delta` after each pass, as egui
+  0.36 panics when unapplied texture deltas are dropped.
 
 ## [0.4.0] - 2026-09-08
 
