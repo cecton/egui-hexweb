@@ -16,8 +16,9 @@ The board is a small patch of hexagonal lattice: nodes joined by grid lines in
 six directions (up, down, and the four diagonals). Fewer pieces than nodes sit
 on the board, and each piece carries a few arrows pointing along those grid
 lines. **Drag the pieces to any free node, or onto another piece to swap the
-two** until every arrow of every piece points at a node that holds another
-piece: a completed web where nothing points into the void.
+two** until every arrow of every piece is met by the opposite arrow of the
+piece it points at: a completed web of mutual pairs where nothing points
+into the void.
 
 Unsatisfied arrows are drawn in an accent color, so the board itself always
 tells you how close you are.
@@ -95,15 +96,17 @@ if let Some(nodes) = game.solution() {
 
 The generator lays a solved configuration down first: it picks which nodes are
 occupied, then gives each piece arrows that provably point at other pieces in
-that configuration. A solution therefore always exists, by construction.
+that configuration, and closes the sets under reciprocity so every arrow is
+mutually answered. A solution therefore always exists, by construction.
 
 Because the boards are small (8 to 16 nodes), the solver is exhaustive rather
 than heuristic: it enumerates every possible set of empty nodes and counts the
 distinct assignments of the pieces that satisfy every arrow, treating
 identical pieces as interchangeable. The generator counts up to two solutions;
-if it finds more than one, it adds an arrow that provably kills one of them
-(adding an arrow can never break the configuration it was built from, and can
-never create a new solution), and recounts, until exactly one remains.
+if it finds more than one, it adds an arrow *pair* — a new arrow plus the
+opposite arrow on the piece it points at — that provably kills one of them
+(added arrows can never break the configuration it was built from), and
+recounts, until exactly one remains.
 
 ## egui version compatibility
 

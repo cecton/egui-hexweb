@@ -1,11 +1,12 @@
 //! Exact counting of the puzzle's solutions.
 //!
 //! A **solution** is a placement of the multiset of pieces on distinct nodes
-//! such that every arrow of every piece points at an occupied node. Pieces
-//! with identical arrows are interchangeable: two placements that differ only
-//! by permuting them are the same solution. Every count in this module is
-//! stated in those terms; don't "optimize" the grouping away, it is the
-//! property the uniqueness guarantee is stated in.
+//! such that every arrow of every piece points at an occupied node **whose
+//! piece points back with the opposite arrow**. Pieces with identical arrows
+//! are interchangeable: two placements that differ only by permuting them
+//! are the same solution. Every count in this module is stated in those
+//! terms; don't "optimize" the grouping away, it is the property the
+//! uniqueness guarantee is stated in.
 //!
 //! The boards this crate ships are small (8-16 nodes, 6-12 pieces), which
 //! makes an exhaustive search cheap and exact where a heuristic would need
@@ -15,7 +16,9 @@
 //!    side: C(16,4) = 1820 at worst). Deciding occupancy first turns the
 //!    self-referential "arrows must point at pieces" constraint into a purely
 //!    local check: a piece with arrow set `a` fits on node `n` iff every
-//!    arrow target of `n` is in-board and occupied.
+//!    arrow target of `n` is in-board and occupied. The remaining half of
+//!    the rule — reciprocity between two seated neighbors — is checked
+//!    during the seating DFS below, each adjacent pair exactly once.
 //! 2. Per occupancy set, assign pieces group by group (grouped by arrow set,
 //!    canonical bitmask order). A group of `c` identical pieces picks `c`
 //!    fitting nodes in **increasing node order**, which collapses all `c!`
@@ -27,7 +30,7 @@
 //! DFS — tens of microseconds, so the generator verifies every candidate and
 //! every repair step.
 
-use crate::game::{Arrows, Node, Piece};
+use crate::game::{Arrows, Dir, Node, Piece};
 
 /// Counts the distinct solutions, stopping early once `cap` is reached (the
 /// result is then `cap`). `cap == 0` always returns 0.
@@ -194,6 +197,8 @@ fn run(pieces: &[Piece], nodes: &[Node], search: &mut Search) {
     // set allocates tens of thousands of times per sweep.
     let mut slots: Vec<NodeId> = Vec::with_capacity(piece_count);
     let mut fits: Vec<Vec<NodeId>> = vec![Vec::with_capacity(node_count); groups.len()];
+    // Which group is seated on each node during the DFS; `None` = unseated.
+    let mut group_at: Vec<Option<usize>> = vec![None; node_count];
     for empty in EmptySets::new(empties, node_count) {
         let occupied = full & !empty;
 
@@ -219,9 +224,11 @@ fn run(pieces: &[Piece], nodes: &[Node], search: &mut Search) {
 
         // Candidates are already filtered to `occupied`, so the DFS's used
         // mask starts empty.
-        let seating = Seating {
+        let mut seating = Seating {
+            nodes,
             groups: &groups,
             fits: &fits,
+            group_at: &mut group_at,
         };
         if seating.groups(0, 0, &mut slots, search) {
             return; // cap reached
@@ -230,17 +237,27 @@ fn run(pieces: &[Piece], nodes: &[Node], search: &mut Search) {
 }
 
 /// The per-occupancy-set DFS: seats each group's copies on fitting nodes.
-/// `groups` and `fits` always travel together through the recursion, so
-/// they live on the struct rather than threading through every level.
+/// `groups`, `fits`, and `group_at` always travel together through the
+/// recursion, so they live on the struct rather than threading through
+/// every level.
 struct Seating<'a> {
+    nodes: &'a [Node],
     groups: &'a [(Arrows, usize)],
     fits: &'a [Vec<NodeId>],
+    /// Which group is seated on each node, maintained with `slots`.
+    group_at: &'a mut Vec<Option<usize>>,
 }
 
 impl Seating<'_> {
     /// Assigns groups starting at `gi`. Returns whether the search is
     /// saturated.
-    fn groups(&self, gi: usize, used: u64, slots: &mut Vec<NodeId>, search: &mut Search) -> bool {
+    fn groups(
+        &mut self,
+        gi: usize,
+        used: u64,
+        slots: &mut Vec<NodeId>,
+        search: &mut Search,
+    ) -> bool {
         if gi == self.groups.len() {
             return search.found(slots);
         }
@@ -253,7 +270,7 @@ impl Seating<'_> {
     /// identical pieces' permutations count once: they are seated in node
     /// order.
     fn copies(
-        &self,
+        &mut self,
         gi: usize,
         copies_left: usize,
         start: usize,
@@ -264,11 +281,17 @@ impl Seating<'_> {
         if copies_left == 0 {
             return self.groups(gi + 1, used, slots, search);
         }
-        for (idx, &node) in self.fits[gi].iter().enumerate().skip(start) {
+        let arrows = self.groups[gi].0;
+        for idx in start..self.fits[gi].len() {
+            let node = self.fits[gi][idx];
             if used >> node & 1 == 1 {
                 continue;
             }
+            if !self.mutual_with_seated(node, arrows) {
+                continue;
+            }
             slots.push(node);
+            self.group_at[node] = Some(gi);
             if self.copies(
                 gi,
                 copies_left - 1,
@@ -279,9 +302,30 @@ impl Seating<'_> {
             ) {
                 return true;
             }
+            self.group_at[node] = None;
             slots.pop();
         }
         false
+    }
+
+    /// Whether seating an `arrows` piece on `node` keeps every adjacent
+    /// already-seated pair mutual: either both halves point at each other,
+    /// or neither does. Each adjacent pair is checked exactly once — when
+    /// its second endpoint is seated — so any completed seating is fully
+    /// mutual, and bad branches prune before the leaf.
+    fn mutual_with_seated(&self, node: NodeId, arrows: Arrows) -> bool {
+        for dir in Dir::ALL {
+            let Some(neighbor) = self.nodes[node].neighbors[dir as usize] else {
+                continue;
+            };
+            let Some(other) = self.group_at[neighbor] else {
+                continue;
+            };
+            if arrows.contains(dir) != self.groups[other].0.contains(dir.opposite()) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -358,14 +402,21 @@ mod tests {
                 occupied[node] = true;
             }
             let mut satisfied = true;
-            'pieces: for (&node, &arrows) in placement.iter().zip(arrows) {
-                for dir in arrows.iter() {
-                    match nodes[node].neighbors[dir as usize] {
-                        Some(neighbor) if occupied[neighbor] => {}
-                        _ => {
-                            satisfied = false;
-                            break 'pieces;
+            'pieces: for (&node, &piece_arrows) in placement.iter().zip(arrows) {
+                for dir in piece_arrows.iter() {
+                    let ok = match nodes[node].neighbors[dir as usize] {
+                        Some(neighbor) if occupied[neighbor] => {
+                            let other = placement
+                                .iter()
+                                .position(|&n| n == neighbor)
+                                .expect("occupied neighbor holds a piece");
+                            arrows[other].contains(dir.opposite())
                         }
+                        _ => false,
+                    };
+                    if !ok {
+                        satisfied = false;
+                        break 'pieces;
                     }
                 }
             }
@@ -472,21 +523,25 @@ mod tests {
         assert_eq!(game_count(&[up], &line(), 10), 0);
         // Two Up pieces on a line: the topmost one always points off-board.
         assert_eq!(game_count(&[up, up], &line(), 10), 0);
+        // Under the mutual rule this old fixture dies too: the two Up
+        // pieces can never be pointed back at.
+        let down = Arrows::from_dir(Dir::Down);
+        assert_eq!(game_count(&[up, up, down], &line(), 10), 0);
     }
 
     #[test]
     fn identical_pieces_are_not_double_counted() {
-        // An all-identical multiset can never be satisfied at all: if every
-        // piece carries arrow d, piece at x demands another piece at x+d,
-        // forever. Identical pieces only work inside a mixed multiset:
-        // [Up, Up, Down] on the 3-line has exactly one solution (Down at
-        // (0,-1), the two Ups stacked above it), where the naive labeled
-        // counter would see the two Ups' 2! permutations before
-        // canonicalizing.
+        // A full 4-node line where every arrow is mutual, top to bottom:
+        // {Down}, {Up, Down}, {Up, Down}, {Up}. The two identical
+        // {Up, Down} pieces are seated in increasing node order, so their
+        // 2! permutations count once.
         let up = Arrows::from_dir(Dir::Up);
         let down = Arrows::from_dir(Dir::Down);
-        let count = game_count(&[up, up, down], &line(), usize::MAX);
-        assert_eq!(count, naive_count(&[up, up, down], &line()));
+        let both = up.with(Dir::Down);
+        let coords = [(0, 0), (0, -1), (0, 1), (0, 2)];
+        let arrows = [down, both, both, up];
+        let count = game_count(&arrows, &coords, usize::MAX);
+        assert_eq!(count, naive_count(&arrows, &coords));
         assert_eq!(count, 1);
     }
 
@@ -498,13 +553,16 @@ mod tests {
         let pieces = vec![Piece { arrows: up }, Piece { arrows: down }];
         let found = solution(&pieces, &nodes).expect("has solutions");
         assert_eq!(found.len(), 2);
-        // Re-check independently: both arrows point at an occupied node.
+        // Re-check independently: both arrows point at an occupied node,
+        // and that node's piece points back.
         let occupied: std::collections::HashSet<NodeId> = found.iter().copied().collect();
         for (&node, piece) in found.iter().zip(&pieces) {
             for dir in piece.arrows.iter() {
                 let neighbor = nodes[node].neighbors[dir as usize]
                     .expect("line board has no off-board solutions here");
                 assert!(occupied.contains(&neighbor));
+                let other = found.iter().position(|&n| n == neighbor).unwrap();
+                assert!(pieces[other].arrows.contains(dir.opposite()));
             }
         }
     }

@@ -172,10 +172,11 @@ impl Geometry {
 ///
 /// Drag a piece onto an empty node to move it there, or onto another piece
 /// to swap the two.
-/// Arrows pointing at another piece are drawn in
+/// Arrows answered by a reciprocal arrow are drawn in
 /// `satisfied_color`; the ones still pointing at an empty node or off the
-/// board are drawn in `unsatisfied_color`, which is the board's live
-/// progress feedback. The puzzle is solved when no arrow is unsatisfied.
+/// board, or meeting no reciprocal arrow, are drawn in `unsatisfied_color`,
+/// which is the board's live progress feedback. The puzzle is solved when
+/// no arrow is unsatisfied.
 ///
 /// ```ignore
 /// ui.add(egui_hexweb::HexwebWidget::new(&mut game));
@@ -217,16 +218,17 @@ impl<'a> HexwebWidget<'a> {
         self
     }
 
-    /// Color for arrows that point at an occupied node. Defaults to the
-    /// theme's strong text color.
+    /// Color for arrows that are met by a reciprocal arrow. Defaults to
+    /// the theme's strong text color.
     pub fn satisfied_color(mut self, color: Color32) -> Self {
         self.satisfied_color = Some(color);
         self
     }
 
-    /// Color for arrows that point at an empty node or off the board.
-    /// Defaults to the theme's error color — the accent the player reads
-    /// as "this piece still needs to move".
+    /// Color for arrows that point at an empty node, off the board, or at
+    /// a piece that does not point back. Defaults to the theme's error
+    /// color — the accent the player reads as "this piece still needs to
+    /// move".
     pub fn unsatisfied_color(mut self, color: Color32) -> Self {
         self.unsatisfied_color = Some(color);
         self

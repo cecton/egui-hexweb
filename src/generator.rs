@@ -6,20 +6,23 @@
 //!    only usable if at least one of its neighbors is also occupied (its
 //!    piece must be able to carry at least one arrow).
 //! 2. **Assign arrows**: each piece gets `min_arrows..=max_arrows` distinct
-//!    directions, every one of them pointing at an occupied node. The
-//!    constructed configuration is therefore a solution *by construction* —
-//!    a board from this module always has at least one solution.
+//!    directions, every one of them pointing at an occupied node. A closing
+//!    pass then adds every missing reciprocal arrow, so the constructed
+//!    configuration is a web of mutual pairs — a solution *by construction*
+//!    under the mutual rule (a piece may end up above `max_arrows`, which is
+//!    a soft cap). A board from this module always has at least one solution.
 //! 3. **Verify and repair**: ask the exact solver for a solution *other*
 //!    than the constructed one. If there is none, the board is unique and
-//!    we're done. If there is one, add an arrow. Adding an arrow is
-//!    **monotone**: as long as the new arrow points at a node occupied by the
-//!    constructed configuration, the constructed configuration stays valid
-//!    (so the count can never reach zero), and a strictly stronger
-//!    constraint can never *create* a solution (so the count can never
-//!    increase). Every successful repair therefore strictly decreases the
-//!    number of solutions and the loop terminates. Repairs that provably
-//!    kill the fetched alternate solution are preferred, which usually ends
-//!    the search in a step or two.
+//!    we're done. If there is one, add an arrow *pair*: the new arrow plus
+//!    the opposite arrow on its target piece. Both arrows are mutual within
+//!    the constructed configuration, so it stays valid and the count can
+//!    never reach zero. Termination does not rest on the count shrinking:
+//!    every repair adds a direction no piece's arrow set had before, so a
+//!    candidate saturates after at most `6 × pieces` additions, which
+//!    [`MAX_REPAIRS`] backs up — and the exact recount
+//!    then reports where the candidate stands. Repairs that provably
+//!    kill the fetched alternate solution are preferred, which usually
+//!    ends the search in a step or two.
 //! 4. **Scramble**: apply a random walk of `2 × pieces` legal moves starting
 //!    from the constructed solution. Every walk state is reachable from the
 //!    solution by legal play (moves are reversible), so the puzzle can never
@@ -152,7 +155,7 @@ fn assign_arrows(
     max_arrows: usize,
     rng: &mut fastrand::Rng,
 ) -> Vec<Arrows> {
-    solution_nodes
+    let mut arrows: Vec<Arrows> = solution_nodes
         .iter()
         .map(|&node| {
             let available: Vec<Dir> = Dir::ALL
@@ -177,7 +180,41 @@ fn assign_arrows(
             }
             arrows
         })
-        .collect()
+        .collect();
+
+    // Close the arrow sets under reciprocity: every arrow must be met by
+    // the opposite arrow on its target piece. One pass suffices: an arrow
+    // added here points back at a piece that already points this way, so
+    // it can never create a new missing reciprocal. This may push a piece
+    // past `max_arrows`, which is a soft cap by design.
+    for (piece, _) in solution_nodes.iter().enumerate() {
+        for dir in arrows[piece].iter().collect::<Vec<Dir>>() {
+            ensure_reciprocal(nodes, solution_nodes, &mut arrows, piece, dir);
+        }
+    }
+    arrows
+}
+
+/// Adds the opposite arrow on the target piece, so `dir` on `piece` is
+/// answered within the constructed solution. No-op when the reciprocal is
+/// already present.
+fn ensure_reciprocal(
+    nodes: &[Node],
+    solution_nodes: &[NodeId],
+    arrows: &mut [Arrows],
+    piece: usize,
+    dir: Dir,
+) {
+    let target =
+        nodes[solution_nodes[piece]].neighbors[dir as usize].expect("arrows only point in-board");
+    let other = solution_nodes
+        .iter()
+        .position(|&n| n == target)
+        .expect("arrows only point at occupied nodes");
+    let opposite = dir.opposite();
+    if !arrows[other].contains(opposite) {
+        arrows[other] = arrows[other].with(opposite);
+    }
 }
 
 /// Adds arrows until the constructed configuration is the only solution.
@@ -186,8 +223,8 @@ fn assign_arrows(
 ///
 /// Repairs are batched: against each fetched alternate solution, up to one
 /// killer arrow per piece is added at once. Every arrow in a batch is on its
-/// own a monotone repair (it keeps the constructed solution valid and kills
-/// the alternate), so batching is as safe as single repairs while cutting
+/// own safe (it keeps the constructed solution valid; killers also kill the
+/// alternate), so batching is as safe as single repairs while cutting
 /// the number of solver sweeps by roughly the piece count.
 fn repair_until_unique(
     nodes: &[Node],
@@ -229,13 +266,19 @@ fn repair_until_unique(
                 if !solution_nodes.contains(&target) {
                     continue;
                 }
-                // Does the arrow break the fetched alternate placement of
-                // this piece? If its node has no occupied node in that
-                // direction, the alternate solution dies.
-                let kills = match nodes[alternate[piece]].neighbors[dir as usize] {
-                    Some(neighbor) => alt_occupied >> neighbor & 1 == 0,
-                    None => true,
-                };
+                let other = solution_nodes
+                    .iter()
+                    .position(|&n| n == target)
+                    .expect("target is in solution_nodes");
+                let opposite = dir.opposite();
+                // The alternate dies if either half of the added pair is
+                // unsatisfied on the alternate placement.
+                let kills = [(alternate[piece], dir), (alternate[other], opposite)]
+                    .iter()
+                    .any(|&(from, d)| match nodes[from].neighbors[d as usize] {
+                        Some(neighbor) => alt_occupied >> neighbor & 1 == 0,
+                        None => true,
+                    });
                 if kills {
                     killers.push(dir);
                 } else {
@@ -250,6 +293,11 @@ fn repair_until_unique(
             if !pool.is_empty() {
                 let dir = pool[rng.usize(..pool.len())];
                 arrows[piece] = arrows[piece].with(dir);
+                // Keep the constructed configuration mutual: the target
+                // piece must point back. Both new arrows are satisfied
+                // within the constructed configuration, and arrows are only
+                // ever added, so the repair stays monotone.
+                ensure_reciprocal(nodes, solution_nodes, arrows, piece, dir);
                 repairs += 1;
                 added += 1;
             }
@@ -336,9 +384,15 @@ fn is_solved_placement(nodes: &[Node], arrows: &[Arrows], cell: &[Option<PieceId
         let Some(piece) = occupant else {
             return true;
         };
-        arrows[piece].iter().all(|dir| {
-            nodes[node].neighbors[dir as usize].is_some_and(|neighbor| cell[neighbor].is_some())
-        })
+        arrows[piece]
+            .iter()
+            .all(|dir| match nodes[node].neighbors[dir as usize] {
+                Some(neighbor) => match cell[neighbor] {
+                    Some(other) => arrows[other].contains(dir.opposite()),
+                    None => false,
+                },
+                None => false,
+            })
     })
 }
 
@@ -391,7 +445,7 @@ fn single_swap_solves(nodes: &[Node], arrows: &[Arrows], cell: &[Option<PieceId>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{random_symmetric_board, HexwebGame, Params};
+    use crate::game::{build_nodes, random_symmetric_board, HexwebGame, Params};
 
     /// The three shipped presets: (nodes, pieces, min_arrows, max_arrows).
     fn presets() -> Vec<(usize, usize, usize, usize)> {
@@ -467,6 +521,31 @@ mod tests {
                     crate::game::GameStatus::Won,
                     "nodes={nodes} seed={seed}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn assigned_arrows_are_mutual_within_the_solution() {
+        for seed in 0..10u64 {
+            let coords = random_symmetric_board(12, seed);
+            let (nodes, _) = build_nodes(&coords);
+            let mut rng = fastrand::Rng::with_seed(seed);
+            let solution_nodes = pick_occupancy(&nodes, 9, &mut rng).expect("occupancy found");
+            let arrows = assign_arrows(&nodes, &solution_nodes, 2, 4, &mut rng);
+            for (piece, &node) in solution_nodes.iter().enumerate() {
+                for dir in arrows[piece].iter() {
+                    let neighbor = nodes[node].neighbors[dir as usize]
+                        .expect("assigned arrows point in-board");
+                    let other = solution_nodes
+                        .iter()
+                        .position(|&n| n == neighbor)
+                        .expect("assigned arrows point at occupied nodes");
+                    assert!(
+                        arrows[other].contains(dir.opposite()),
+                        "arrow {dir:?} of piece {piece} is not reciprocated (seed {seed})"
+                    );
+                }
             }
         }
     }

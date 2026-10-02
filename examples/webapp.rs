@@ -168,7 +168,8 @@ fn run() {
                 ui.add_space(8.0);
                 ui.label(
                     "Drag a piece onto an empty node to move it, or onto another piece to swap \
-                     the two. Arrows must all point at another piece.",
+                     the two. Arrows must all be answered: each must point at a piece that \
+                     points back.",
                 );
                 ui.add_space(8.0);
                 ui.add(HexwebWidget::new(&mut self.game));

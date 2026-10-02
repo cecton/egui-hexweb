@@ -1,6 +1,6 @@
 //! Game logic for the hexweb puzzle: a hexagonal lattice of nodes where a
-//! subset of nodes holds pieces, each piece carrying arrows that must all
-//! point at occupied nodes.
+//! subset of nodes holds pieces, each piece carrying arrows that must all be
+//! met by the opposite arrow on the piece they point at.
 //!
 //! This module is pure logic: no `egui` types, no painting, no input. The
 //! [`HexwebGame`] struct owns the board and the piece placement; the widget
@@ -175,12 +175,13 @@ pub struct Params {
     pub pieces: usize,
     /// Inclusive lower bound of arrows per piece (at least 1).
     pub min_arrows: usize,
-    /// Inclusive upper bound of arrows per piece (at most 6).
+    /// Inclusive upper bound of arrows per piece (at most 6). A soft cap:
+    /// the generator's reciprocal closure may push a piece above it.
     pub max_arrows: usize,
 }
 
 /// The hexweb puzzle: pieces on a hexagonal lattice, moved until every arrow
-/// points at another piece.
+/// is met by the opposite arrow of the piece it points at.
 #[derive(Clone, Debug)]
 pub struct HexwebGame {
     nodes: Vec<Node>,
@@ -527,28 +528,37 @@ impl HexwebGame {
         true
     }
 
-    /// Whether every arrow of `piece` currently points at an occupied node.
+    /// Whether every arrow of `piece` currently forms a mutual pair.
     pub fn satisfied(&self, piece: PieceId) -> bool {
         self.unsatisfied_arrows(piece).is_empty()
     }
 
-    /// The arrows of `piece` whose target node is empty or off the board.
-    /// This is the live feedback the widget paints in the accent color.
+    /// The arrows of `piece` that do not yet form a mutual pair: their
+    /// target node is empty, off the board, or holds a piece that does not
+    /// point back with the opposite arrow. This is the live feedback the
+    /// widget paints in the accent color.
     pub fn unsatisfied_arrows(&self, piece: PieceId) -> Arrows {
         let Some(node) = self.node_of(piece) else {
             return self.pieces[piece].arrows;
         };
         let mut result = Arrows::default();
         for dir in self.pieces[piece].arrows.iter() {
-            match self.nodes[node].neighbors[dir as usize] {
-                Some(neighbor) if self.cell_piece[neighbor].is_some() => {}
-                _ => result = result.with(dir),
+            let satisfied = match self.nodes[node].neighbors[dir as usize] {
+                Some(neighbor) => match self.cell_piece[neighbor] {
+                    Some(other) => self.pieces[other].arrows.contains(dir.opposite()),
+                    None => false,
+                },
+                None => false,
+            };
+            if !satisfied {
+                result = result.with(dir);
             }
         }
         result
     }
 
-    /// Whether every arrow of every piece points at an occupied node.
+    /// Whether every arrow of every piece is met by the opposite arrow of
+    /// the piece it points at: a completed web of mutual pairs.
     pub fn is_solved(&self) -> bool {
         (0..self.pieces.len()).all(|piece| self.satisfied(piece))
     }
@@ -824,6 +834,37 @@ mod tests {
         assert_eq!(game.unsatisfied_arrows(1), Arrows::from_dir(Dir::Down));
         assert!(!game.satisfied(0));
         assert!(!game.satisfied(1));
+    }
+
+    #[test]
+    fn arrows_without_reciprocal_stay_unsatisfied() {
+        // Two {Up} pieces stacked: the lower one points at an occupied
+        // node, but the piece there points up, not back down.
+        let (nodes, _) = build_nodes(&[(0, 0), (0, -1)]);
+        let up = Piece {
+            arrows: Arrows::from_dir(Dir::Up),
+        };
+        let pieces = vec![up, up];
+        let cell_piece = vec![Some(0), Some(1)];
+        let game = HexwebGame::from_parts(nodes, pieces, cell_piece.clone(), cell_piece);
+        assert_eq!(game.unsatisfied_arrows(0), Arrows::from_dir(Dir::Up));
+        assert!(!game.is_solved());
+
+        // Making the pair mutual satisfies both arrows.
+        let (nodes, _) = build_nodes(&[(0, 0), (0, -1)]);
+        let pieces = vec![
+            Piece {
+                arrows: Arrows::from_dir(Dir::Up),
+            },
+            Piece {
+                arrows: Arrows::from_dir(Dir::Down),
+            },
+        ];
+        let cell_piece = vec![Some(0), Some(1)];
+        let game = HexwebGame::from_parts(nodes, pieces, cell_piece.clone(), cell_piece);
+        assert_eq!(game.unsatisfied_arrows(0), Arrows::default());
+        assert_eq!(game.unsatisfied_arrows(1), Arrows::default());
+        assert!(game.is_solved());
     }
 
     #[test]

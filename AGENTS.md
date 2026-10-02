@@ -13,8 +13,9 @@ be pulled into other egui apps as a dependency.
 The puzzle: a small patch of hexagonal lattice with fewer pieces than nodes.
 Every piece carries 1-6 arrows pointing along the six lattice directions.
 Pieces move by drag & drop, to any free node or onto an occupied node to
-swap the two; the puzzle is solved when
-**every arrow of every piece points at an occupied node**.
+swap the two; the puzzle is solved when **every arrow of every piece points
+at an occupied node whose piece points back with the opposite arrow**
+(mutual pairs).
 
 "Hexa Arrows" is a trademarked product name of an existing mobile puzzle —
 never use it, or names confusingly close to it, in code, docs, or naming.
@@ -51,13 +52,16 @@ that; the u64 occupancy mask caps boards at 64 nodes.
   code.
 - `src/solver.rs` — `pub(crate)` counting over the placement space: enumerate
   empty-node complements, then assign arrow-set groups to fitting nodes in
-  increasing node order. It counts **placements of the multiset**, not
+  increasing node order; a seated piece must also form mutual arrow pairs
+  with its already-seated neighbors. It counts **placements of the multiset**, not
   permutations of identical pieces. Don't "optimize" that away; it is the
   property the uniqueness guarantee is stated in terms of.
 - `src/generator.rs` — `pub(crate)` only. Lays a solved configuration first,
   verifies with the counting solver, repairs non-unique candidates by adding
-  arrows (monotone: can never break the built solution or create new
-  solutions), then scrambles by a random walk of legal moves. The module doc
+  arrow pairs (new arrow plus the opposite arrow on its target) (each pair
+  keeps the built solution valid; termination comes from arrow saturation
+  plus `MAX_REPAIRS`, not from the count shrinking), then
+  scrambles by a random walk of legal moves. The module doc
   carries the full argument for why repair terminates and why the scramble
   walk keeps the solution reachable.
 - `src/widget.rs` — `HexwebWidget`, `content_size`, `fit_cell_size`, and all

@@ -7,6 +7,15 @@ Versioning](semver).
 
 ## [Unreleased]
 
+### Changed
+
+- An arrow is now satisfied only when the piece it points at points back
+  with the opposite arrow: a solved board is a web of mutual arrow pairs.
+  The solver, the generator, and the live accent-color feedback all follow
+  the stricter rule. `Params::max_arrows` is now a soft upper bound for the
+  generator's initial draw, since closing the constructed solution under
+  reciprocity can add further arrows.
+
 ## [0.5.0] - 2026-09-19
 
 ### Removed
